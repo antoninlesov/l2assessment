@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { categorizeMessage } from '../utils/llmHelper'
-import { calculateUrgency } from '../utils/urgencyScorer'
-import { getRecommendedAction } from '../utils/templates'
+import { getRecommendedAction, shouldEscalate } from '../utils/templates'
+
+// Minimum characters required for a meaningful analysis.
+const MIN_MESSAGE_LENGTH = 10
 
 function AnalyzePage() {
   const [message, setMessage] = useState('')
@@ -19,29 +21,33 @@ function AnalyzePage() {
   }, [])
 
   const handleAnalyze = async () => {
-    if (!message.trim()) {
-      alert('Please enter a message to analyze')
+    const trimmed = message.trim()
+    if (trimmed.length < MIN_MESSAGE_LENGTH) {
+      alert(`Please enter at least ${MIN_MESSAGE_LENGTH} characters so the message can be analyzed meaningfully.`)
       return
     }
 
     setIsLoading(true)
     setResults(null)
-    
+
     try {
-      // Run categorization (LLM call)
-      const { category, reasoning } = await categorizeMessage(message)
-      
-      // Calculate urgency (rule-based)
-      const urgency = calculateUrgency(message)
-      
+      // Single structured call returns category, urgency, confidence & reasoning.
+      const { category, urgency, confidence, reasoning, usedFallback } = await categorizeMessage(message)
+
       // Get recommended action (template-based)
       const recommendedAction = getRecommendedAction(category)
-      
+
+      // Decide whether a human needs to review this (urgency / low confidence).
+      const escalate = shouldEscalate(category, urgency, confidence)
+
       const analysisResult = {
         message,
         category,
         urgency,
+        confidence,
         recommendedAction,
+        escalate,
+        usedFallback,
         reasoning,
         timestamp: new Date().toISOString()
       }
@@ -128,12 +134,31 @@ function AnalyzePage() {
         {results && (
           <div className="bg-white rounded-lg shadow-md p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Analysis Results</h2>
-            
+
+            {results.usedFallback && (
+              <div className="mb-4 bg-orange-50 border border-orange-300 text-orange-900 rounded-lg p-3 text-sm">
+                ⚠️ The AI service was unavailable — these results came from a basic keyword fallback and may be less accurate.
+              </div>
+            )}
+
+            {results.escalate && (
+              <div className="mb-4 bg-red-50 border border-red-300 text-red-900 rounded-lg p-3 text-sm font-semibold">
+                🚨 Escalate to a human agent — high urgency or low confidence.
+              </div>
+            )}
+
             <div className="space-y-4">
               <div>
                 <div className="text-sm font-semibold text-gray-600 mb-1">Category</div>
                 <div className="inline-block bg-blue-100 text-blue-800 px-4 py-2 rounded-lg font-semibold">
                   {results.category}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-sm font-semibold text-gray-600 mb-1">Confidence</div>
+                <div className="inline-block bg-gray-100 text-gray-800 px-4 py-2 rounded-lg font-semibold">
+                  {Math.round((results.confidence ?? 0) * 100)}%
                 </div>
               </div>
 

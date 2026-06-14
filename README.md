@@ -1,5 +1,25 @@
 # Customer Inbox Triage App
 
+## Assessment Write-up (changes by Antonin Lesov)
+
+### Top 3 areas for improvement found
+1. **Urgency was meaning-blind.** The rule-based scorer used punctuation and length, not content — so "Server down now" was marked **Low** (too short) and "Thank you!!!" was marked **High** (too many `!`). It never checked for words like *down, urgent, can't access*.
+2. **Weak prompt + brittle parsing.** The LLM prompt was just *"Categorize this message"* with no category list, no format, and `temperature: 0.7` (inconsistent). The app then keyword-scraped the free-text reply (`content.includes('billing')`), which breaks on phrasing like "this is *not* a billing issue."
+3. **Wrong recommendations & length-only escalation.** Feature requests were told to "check billing portal," there was no *Positive Feedback* category, and `shouldEscalate` only checked `message.length > 100` — ignoring urgency entirely.
+
+### Improvement implemented
+Replaced the three disconnected steps with **one structured LLM call** (`temperature: 0`, JSON output) that returns `category`, `urgency`, `confidence`, and `reasoning` together — grounded in a fixed category list with few-shot examples. On top of that:
+- **Confidence-based human escalation** (`shouldEscalate`): escalates on High urgency, low confidence, or Unknown — the human-in-the-loop safety net.
+- **Input validation** (min length) so junk like "hi" can't be submitted.
+- **Visible fallback warning** instead of silently faking results when the API fails.
+- Fixed the recommendation templates and added a *Positive Feedback* category.
+
+**Why this is the biggest win for Relay AI:** accurate category + urgency is the whole value of triage. One structured call fixes pieces of all three problems at once, makes results consistent, and the confidence/escalation flow lets the AI safely handle the easy cases while routing the uncertain ones to a human — which is exactly how you handle more volume without adding staff.
+
+Files changed: `src/utils/llmHelper.js`, `src/utils/templates.js`, `src/utils/urgencyScorer.js`, `src/pages/AnalyzePage.jsx`.
+
+---
+
 ## Overview
 
 The Customer Inbox Triage app is a lightweight AI-powered tool that helps classify customer support messages and recommend actions. It uses Groq AI to categorize messages, applies rule-based urgency scoring, and suggests next steps based on predefined templates.
